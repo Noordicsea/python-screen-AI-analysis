@@ -1,0 +1,168 @@
+---gui.py---
+import tkinter as tk
+from tkinter import Canvas
+from PIL import ImageTk
+from ocr import process_selection
+
+def select_area(root, canvas, screenshot):
+    coords = {'start': (0, 0), 'end': (0, 0)}
+    rect = None
+
+    def on_click(event):
+        coords['start'] = (event.x, event.y)
+
+    def on_drag(event):
+        nonlocal rect
+        coords['end'] = (event.x, event.y)
+        if rect:
+            canvas.delete(rect)
+        rect = canvas.create_rectangle(*coords['start'], *coords['end'], outline='red')
+
+    def on_release(event):
+        coords['end'] = (event.x, event.y)
+        root.quit()
+
+    canvas.bind("<ButtonPress-1>", on_click)
+    canvas.bind("<B1-Motion>", on_drag)
+    canvas.bind("<ButtonRelease-1>", on_release)
+
+    root.mainloop()
+
+    return process_selection(screenshot, coords)
+
+---main.py---
+import keyboard
+from PIL import ImageGrab
+import tkinter as tk
+from tkinter import Canvas
+from PIL import ImageTk
+from ocr import process_selection
+from gui import select_area
+from openai_api import query_openai_api
+from menu import display_menu
+import time
+
+choice = None
+continue_waiting = True
+
+def start_screenshot_process():
+    global choice, continue_waiting
+    if choice == '2':
+        continue_waiting = False  # Stop waiting for user input
+        screenshot = ImageGrab.grab()
+        root = tk.Tk()
+        root.title("Select Area for OCR")
+        root.attributes('-fullscreen', True)
+        tk_screenshot = ImageTk.PhotoImage(screenshot)
+        canvas = Canvas(root, width=screenshot.width, height=screenshot.height)
+        canvas.pack(fill="both", expand=True)
+        canvas.create_image(0, 0, image=tk_screenshot, anchor="nw")
+        extracted_text = select_area(root, canvas, screenshot)
+        root.destroy()
+        if extracted_text and isinstance(extracted_text, str):
+            response = query_openai_api(extracted_text)
+            print("OpenAI Response:\n", response)
+            print("Press 'ctrl+alt+shift+s' to screenshot another question or press 'ctrl+alt+shift+x' to exit.")
+            continue_waiting = True  # Start waiting for user input again
+        else:
+            print("No text extracted or text is not a string.")
+    else:
+        print("Please select 'Answer the question' from the main menu to use this feature.")
+
+def main():
+    global choice, continue_waiting
+    choice = display_menu()
+    keyboard.add_hotkey('ctrl+alt+shift+s', start_screenshot_process)
+    keyboard.add_hotkey('ctrl+alt+shift+x', lambda: exit())  # To stop the process
+
+    # User reminder to use hotkeys based on the choice
+    if choice == '2':
+        print("Press 'ctrl+alt+shift+s' to start the screenshot process for OCR.")
+    # Add similar reminders for other choices if needed
+
+    while True:
+        if choice == '5':
+            break
+        elif choice == '1':
+            # Code for "Give info"
+            pass
+        elif choice == '3':
+            # Code for "Identify the object"
+            pass
+        elif choice == '4':
+            # Code for "Settings"
+            pass
+
+        # Wait for user input via hotkeys
+        while continue_waiting:
+            time.sleep(0.1)  # Prevent CPU overuse
+
+        # Reset flag and choice for next interaction
+        continue_waiting = True
+        if choice != '2':
+            choice = display_menu()
+
+if __name__ == "__main__":
+    main()
+
+
+---menu.py---
+def display_menu():
+    print("1. Give info")
+    print("2. Answer the question")
+    print("3. Identify the object")
+    print("4. Settings")
+    print("5. Exit")
+    choice = input("Enter your choice: ")
+    return choice
+
+---ocr.py---
+from PIL import ImageGrab
+import pytesseract
+
+def process_selection(image, coords):
+    try:
+        x0, y0 = coords['start']
+        x1, y1 = coords['end']
+        x0, x1 = sorted([x0, x1])
+        y0, y1 = sorted([y0, y1])
+        cropped_image = image.crop((x0, y0, x1, y1))
+        text = pytesseract.image_to_string(cropped_image)
+        return text
+    except Exception as e:
+        print(f"Error during text extraction: {e}")
+        return ""
+
+---openai_api.py---
+import openai
+
+def query_openai_api(question):
+    client = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {
+                "role": "user",
+                "content": question,
+            },
+        ],
+    )
+    return client.choices[0].message.content
+
+---py_collect.py---
+import os
+
+def gather_python_scripts(directory):
+    python_scripts_content = ""
+    for filename in os.listdir(directory):
+        if filename.endswith(".py"):
+            with open(os.path.join(directory, filename), 'r') as file:
+                python_scripts_content += f"---{filename}---\n"
+                python_scripts_content += file.read()
+                python_scripts_content += "\n\n"
+    with open(os.path.join(directory, "all_python_scripts.txt"), 'w') as output_file:
+        output_file.write(python_scripts_content)
+
+# Run the function in the current directory
+gather_python_scripts('.')
+
+
